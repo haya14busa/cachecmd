@@ -222,7 +222,7 @@ func fileexists(filename string) bool {
 func cacheFileName(cmd string) string {
 	h := md5.New()
 	io.WriteString(h, cmd)
-	return fmt.Sprintf("v%d-%x", cacheStructureVersion, h.Sum(nil))
+	return fmt.Sprintf("v%s-%x", cacheStructureVersion, h.Sum(nil))
 }
 
 func cacheDir() string {
