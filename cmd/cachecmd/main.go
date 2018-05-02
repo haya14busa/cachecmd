@@ -15,19 +15,43 @@ import (
 	"time"
 )
 
-const version = "0.9.0"
+const version = "v0.9.0"
 
 // Update it when cache structure changed.
 const cacheStructureVersion = "1"
 
-const usageMessage = "" +
-	`Usage: cachecmd [flags] command
-`
+const usageMessage = `Usage:	cachecmd [flags] {command}
+	cachecmd runs a given command and caches the result of the command.
+	Return cached result instead if cache found.`
+
+const usageExample = `Example:
+	$ cachecmd -ttl=10s date +%S
+	14 # First run
+	$ sleep 5s
+	$ cachecmd -ttl=10s date +%S
+	14 # Read from cache
+	$ sleep 5s
+	$ cachecmd -ttl=10s date +%S
+	24 # cache is expired. Run command again and update cache.
+
+	# Force update: set -ttl=0
+	$ cachecmd -ttl=0 date +%S
+
+	# TTL is 10 min. Return cache result immediately from cache and update cache
+	# in background for every run.
+	$ cachecmd -ttl=10m -async sh -c 'date +%s; sleep 3s`
 
 func usage() {
 	fmt.Fprintln(os.Stderr, usageMessage)
+	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Flags:")
 	flag.PrintDefaults()
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, usageExample)
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "URL: https://github.com/haya14busa/cachecmd")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintf(os.Stderr, "Version: %v\n", version)
 	os.Exit(2)
 }
 
@@ -43,7 +67,7 @@ func init() {
 	flag.BoolVar(&flagOpt.version, "version", false, "print version")
 	flag.DurationVar(&flagOpt.ttl, "ttl", time.Minute, "TTL(Time to live) of cache")
 	flag.BoolVar(&flagOpt.async, "async", false,
-		"return result from cache immidiately and update cache in background")
+		"return result from cache immediately and update cache in background")
 }
 
 func main() {
