@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +31,7 @@ func usage() {
 type option struct {
 	version bool
 	ttl     time.Duration
+	async   bool
 }
 
 var flagOpt = &option{}
@@ -37,6 +39,8 @@ var flagOpt = &option{}
 func init() {
 	flag.BoolVar(&flagOpt.version, "version", false, "print version")
 	flag.DurationVar(&flagOpt.ttl, "ttl", time.Minute, "TTL(Time to live) of cache")
+	flag.BoolVar(&flagOpt.async, "async", false,
+		"return result from cache immidiately and update cache in background")
 }
 
 func main() {
@@ -47,17 +51,18 @@ func main() {
 		return
 	}
 	if err := run(os.Stdin, os.Stdout, os.Stderr, flagOpt, flag.Args()); err != nil {
+		fmt.Fprintf(os.Stderr, "cachecmd: %v\n", err)
 		os.Exit(exitCode(err))
 	}
 }
 
-func run(r io.Reader, w io.Writer, stderr io.Writer, opt *option, command []string) error {
+func run(r io.Reader, stdout, stderr io.WriteCloser, opt *option, command []string) error {
 	if len(command) == 0 {
 		usage()
 		return nil
 	}
 	cachecmd := CacheCmd{
-		stdout:  w,
+		stdout:  stdout,
 		stderr:  stderr,
 		cmdName: command[0],
 		cmdArgs: command[1:],
@@ -67,13 +72,14 @@ func run(r io.Reader, w io.Writer, stderr io.Writer, opt *option, command []stri
 }
 
 type CacheCmd struct {
-	stdout  io.Writer
-	stderr  io.Writer
+	stdout  io.WriteCloser
+	stderr  io.WriteCloser
 	cmdName string
 	cmdArgs []string
 	opt     *option
 
-	currentTime time.Time
+	currentTime  time.Time
+	cachecmdExec string
 }
 
 func (c *CacheCmd) Run(ctx context.Context) error {
@@ -81,19 +87,50 @@ func (c *CacheCmd) Run(ctx context.Context) error {
 		return err
 	}
 
-	cacheFname := c.cacheFileName()
+	cachePath := c.cacheFilePath()
 
-	if c.shouldUseCache(cacheFname) {
-		return c.fromCache(cacheFname)
+	// Read from cache.
+	if c.shouldUseCache(cachePath) {
+		if err := c.fromCache(cachePath); err != nil {
+			return err
+		}
+		if !c.opt.async {
+			return nil
+		}
+		// Spawn update command in background and return.
+		return c.updateCacheCmd().Start()
 	}
 
-	f, err := os.Create(cacheFname)
+	// Create temp file to store command result.
+	// Do not use cache file directly to access cache file while updating cache.
+	tmpf, err := ioutil.TempFile("", "cachecmd_")
 	if err != nil {
+		return fmt.Errorf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpf.Name())
+
+	// Run command.
+	if err := c.runCmd(ctx, tmpf); err != nil {
 		return err
 	}
-	defer f.Close()
 
-	return c.runCmd(ctx, f)
+	// Rename temp file to appropriate file name for cache.
+	err = tmpf.Close()
+	if err = os.Rename(tmpf.Name(), cachePath); err != nil {
+		return fmt.Errorf("failed to update cache: %v", err)
+	}
+
+	return nil
+}
+
+func (c *CacheCmd) updateCacheCmd() *exec.Cmd {
+	execName := c.cachecmdExec
+	if execName == "" {
+		execName = os.Args[0]
+	}
+	args := append(c.cmdArgs[:0],
+		append([]string{"-ttl=0", c.cmdName}, c.cmdArgs[0:]...)...)
+	return exec.Command(execName, args...)
 }
 
 func (c *CacheCmd) shouldUseCache(cacheFname string) bool {
@@ -126,7 +163,7 @@ func (c *CacheCmd) makeCacheDir() error {
 	return os.MkdirAll(cacheDir(), os.ModePerm)
 }
 
-func (c *CacheCmd) cacheFileName() string {
+func (c *CacheCmd) cacheFilePath() string {
 	fname := cacheFileName(c.cmdName + " " + strings.Join(c.cmdArgs, " "))
 	return filepath.Join(cacheDir(), fname)
 }
@@ -139,9 +176,12 @@ func (c *CacheCmd) runCmd(ctx context.Context, cache io.Writer) error {
 		return err
 	}
 
-	go cmd.Start()
-	if _, err := io.Copy(cache, io.TeeReader(stdout, c.stdout)); err != nil {
+	if err := cmd.Start(); err != nil {
 		return err
+	}
+
+	if _, err := io.Copy(cache, io.TeeReader(stdout, c.stdout)); err != nil {
+		return fmt.Errorf("failed to copy command result to cache: %v", err)
 	}
 
 	return cmd.Wait()
