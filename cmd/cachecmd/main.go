@@ -17,6 +17,9 @@ import (
 
 const version = "0.9.0"
 
+// Update it when cache structure changed.
+const cacheStructureVersion = "1"
+
 const usageMessage = "" +
 	`Usage: cachecmd [flags] command
 `
@@ -195,7 +198,7 @@ func fileexists(filename string) bool {
 func cacheFileName(cmd string) string {
 	h := md5.New()
 	io.WriteString(h, cmd)
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return fmt.Sprintf("v%d-%x", cacheStructureVersion, h.Sum(nil))
 }
 
 func cacheDir() string {
