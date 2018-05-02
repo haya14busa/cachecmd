@@ -56,9 +56,10 @@ func usage() {
 }
 
 type option struct {
-	version bool
-	ttl     time.Duration
-	async   bool
+	version  bool
+	ttl      time.Duration
+	async    bool
+	cacheDir string
 }
 
 var flagOpt = &option{}
@@ -68,6 +69,7 @@ func init() {
 	flag.DurationVar(&flagOpt.ttl, "ttl", time.Minute, "TTL(Time to live) of cache")
 	flag.BoolVar(&flagOpt.async, "async", false,
 		"return result from cache immediately and update cache in background")
+	flag.StringVar(&flagOpt.cacheDir, "cache_dir", cacheDir(), "cache directory.")
 }
 
 func main() {
@@ -77,13 +79,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, version)
 		return
 	}
-	if err := run(os.Stdin, os.Stdout, os.Stderr, flagOpt, flag.Args()); err != nil {
+	if err := run(os.Stdin, os.Stdout, os.Stderr, *flagOpt, flag.Args()); err != nil {
 		fmt.Fprintf(os.Stderr, "cachecmd: %v\n", err)
 		os.Exit(exitCode(err))
 	}
 }
 
-func run(r io.Reader, stdout, stderr io.Writer, opt *option, command []string) error {
+func run(r io.Reader, stdout, stderr io.Writer, opt option, command []string) error {
 	if len(command) == 0 {
 		usage()
 		return nil
@@ -103,7 +105,7 @@ type CacheCmd struct {
 	stderr  io.Writer
 	cmdName string
 	cmdArgs []string
-	opt     *option
+	opt     option
 
 	currentTime  time.Time
 	cachecmdExec string
@@ -156,7 +158,8 @@ func (c *CacheCmd) updateCacheCmd() *exec.Cmd {
 		execName = os.Args[0]
 	}
 	args := append(c.cmdArgs[:0],
-		append([]string{"-ttl=0", c.cmdName}, c.cmdArgs[0:]...)...)
+		append([]string{"-ttl", "0", "-cache_dir", c.opt.cacheDir, c.cmdName},
+			c.cmdArgs[0:]...)...)
 	return exec.Command(execName, args...)
 }
 
@@ -187,12 +190,12 @@ func (c *CacheCmd) fromCache(cacheFname string) error {
 }
 
 func (c *CacheCmd) makeCacheDir() error {
-	return os.MkdirAll(cacheDir(), os.ModePerm)
+	return os.MkdirAll(c.opt.cacheDir, os.ModePerm)
 }
 
 func (c *CacheCmd) cacheFilePath() string {
 	fname := cacheFileName(c.cmdName + " " + strings.Join(c.cmdArgs, " "))
-	return filepath.Join(cacheDir(), fname)
+	return filepath.Join(c.opt.cacheDir, fname)
 }
 
 func (c *CacheCmd) runCmd(ctx context.Context, cache io.Writer) error {
