@@ -83,7 +83,7 @@ func main() {
 	}
 }
 
-func run(r io.Reader, stdout, stderr io.WriteCloser, opt *option, command []string) error {
+func run(r io.Reader, stdout, stderr io.Writer, opt *option, command []string) error {
 	if len(command) == 0 {
 		usage()
 		return nil
@@ -99,8 +99,8 @@ func run(r io.Reader, stdout, stderr io.WriteCloser, opt *option, command []stri
 }
 
 type CacheCmd struct {
-	stdout  io.WriteCloser
-	stderr  io.WriteCloser
+	stdout  io.Writer
+	stderr  io.Writer
 	cmdName string
 	cmdArgs []string
 	opt     *option
