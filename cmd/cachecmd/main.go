@@ -58,7 +58,6 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "URL: https://github.com/haya14busa/cachecmd")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "Version: %v\n", version)
-	os.Exit(2)
 }
 
 type option struct {
@@ -97,7 +96,7 @@ func main() {
 func run(r io.Reader, stdout, stderr io.Writer, opt option, command []string) (int, error) {
 	if len(command) == 0 {
 		usage()
-		return 0, nil
+		os.Exit(2)
 	}
 	cachecmd := CacheCmd{
 		stdout:  stdout,
