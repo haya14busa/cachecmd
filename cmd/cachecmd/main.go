@@ -87,9 +87,6 @@ func main() {
 	code, err := run(os.Stdin, os.Stdout, os.Stderr, *flagOpt, flag.Args())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cachecmd: %v\n", err)
-		if code == 0 {
-			code = 1
-		}
 	}
 	os.Exit(code)
 }
@@ -121,6 +118,15 @@ type CacheCmd struct {
 }
 
 func (c *CacheCmd) Run(ctx context.Context) (exitcode int, err error) {
+	code, err := c.fromCacheOrRun(ctx)
+	if err != nil && code == 0 {
+		code = 1
+	}
+	return code, err
+}
+
+// It may return exit code 0 as zero-value.
+func (c *CacheCmd) fromCacheOrRun(ctx context.Context) (exitcode int, err error) {
 	if err := c.makeCacheDir(); err != nil {
 		return 0, err
 	}
@@ -145,22 +151,26 @@ func (c *CacheCmd) Run(ctx context.Context) (exitcode int, err error) {
 		return code, c.updateCacheCmd().Start()
 	}
 
-	stdoutf, finally, err := c.prepareCacheFile(stdoutCache)
+	stdoutf, finally, cancelOut, err := c.prepareCacheFile(stdoutCache)
 	if err != nil {
 		return 0, err
 	}
 	defer finally()
 
-	stderrf, finally, err := c.prepareCacheFile(stderrCache)
+	stderrf, finally, cancelErr, err := c.prepareCacheFile(stderrCache)
 	if err != nil {
 		return 0, err
 	}
 	defer finally()
-	_ = stderrf
 
 	// Run command.
 	if err := c.runCmd(ctx, stdoutf, stderrf); err != nil {
-		code := exitCode(err)
+		code, err := exitError(err)
+		if err != nil {
+			cancelOut()
+			cancelErr()
+			return code, err
+		}
 		if err := c.cacheExitCode(code, exitCodeCache); err != nil {
 			return 0, err
 		}
@@ -172,24 +182,32 @@ func (c *CacheCmd) Run(ctx context.Context) (exitcode int, err error) {
 
 // Create temp file to store command result.
 // Do not use cache file directly to access cache file while updating cache.
-func (c *CacheCmd) prepareCacheFile(path string) (f *os.File, finally func() error, err error) {
+func (c *CacheCmd) prepareCacheFile(path string) (
+	f *os.File, finally func() error, cancel func(), err error) {
 	tmpf, err := ioutil.TempFile("", "cachecmd_")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create temp file: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to create temp file: %v", err)
 	}
+	cancelled := false
 	finally = func() error {
 		// Rename temp file to appropriate file name for cache.
 		if err := tmpf.Close(); err != nil {
 			return err
 		}
+		// Clean up temp file in case rename failed.
+		defer os.Remove(tmpf.Name())
+		if cancelled {
+			// Remove cache file if already exists.
+			os.Remove(path)
+			return nil
+		}
 		if err := os.Rename(tmpf.Name(), path); err != nil {
-			// Clean up temp file incase rename failed.
-			_ = os.Remove(tmpf.Name())
 			return err
 		}
 		return nil
 	}
-	return tmpf, finally, nil
+	cancelf := func() { cancelled = true }
+	return tmpf, finally, cancelf, nil
 }
 
 func (c *CacheCmd) cacheExitCode(code int, path string) error {
@@ -317,14 +335,14 @@ func xdgCacheHome() string {
 	return path
 }
 
-func exitCode(err error) int {
+func exitError(err error) (int, error) {
 	if err == nil {
-		return 0
+		return 0, nil
 	}
 	if exiterr, ok := err.(*exec.ExitError); ok {
 		if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
-			return status.ExitStatus()
+			return status.ExitStatus(), nil
 		}
 	}
-	return 1
+	return 1, err
 }

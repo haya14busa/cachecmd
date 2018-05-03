@@ -90,17 +90,68 @@ func TestCacheCmd_Run(t *testing.T) {
 	}
 }
 
-func TestCacheCmd_Run_failcmd(t *testing.T) {
+func TestCacheCmd_Run_notfound(t *testing.T) {
+	tmpdir, _ := ioutil.TempDir("", "cachecmdtest")
+	defer os.RemoveAll(tmpdir)
 	cachecmd := CacheCmd{
 		stdout:  ioutil.Discard,
 		stderr:  ioutil.Discard,
 		cmdName: "cmd_not_found",
 		cmdArgs: nil,
-		opt:     option{},
+		opt:     option{ttl: 1 * time.Minute, cacheDir: tmpdir},
 	}
-	if _, err := cachecmd.Run(context.TODO()); err == nil {
+
+	code, err := cachecmd.Run(context.TODO())
+	if err == nil {
 		t.Error("got no error, want error")
 	}
+	if code != 1 {
+		t.Errorf("got exit code %d, want 1. error: %v", code, err)
+	}
+
+	fileinfos, err := ioutil.ReadDir(tmpdir)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if len(fileinfos) > 0 {
+		t.Error("got some cache files but want nothing")
+	}
+}
+
+func TestCacheCmd_Run_exit_non_zero(t *testing.T) {
+	tmpdir, _ := ioutil.TempDir("", "cachecmdtest")
+	defer os.RemoveAll(tmpdir)
+	cachecmd := CacheCmd{
+		stderr:  ioutil.Discard,
+		cmdName: "sh",
+		cmdArgs: []string{"-c", "date +%N; exit 2"},
+		opt:     option{ttl: 1 * time.Minute, cacheDir: tmpdir},
+	}
+
+	runcachecmd := func(t *testing.T) {
+		code, err := cachecmd.Run(context.TODO())
+		if err != nil {
+			t.Errorf("got error %v, want nil", err)
+		}
+		if code != 2 {
+			t.Errorf("got exit code %d, want 2. error: %v", code, err)
+		}
+	}
+
+	stdout1 := new(bytes.Buffer)
+	cachecmd.stdout = stdout1
+	t.Run("first run", runcachecmd)
+
+	stdout2 := new(bytes.Buffer)
+	cachecmd.stdout = stdout2
+	t.Run("second run with cache", func(t *testing.T) {
+		runcachecmd(t)
+
+		if stdout1.String() != stdout2.String() {
+			t.Error("got different result, want cached result")
+		}
+	})
 }
 
 func TestCacheCmd_Run_async(t *testing.T) {
