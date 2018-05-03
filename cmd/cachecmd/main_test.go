@@ -67,7 +67,7 @@ func TestCacheCmd_Run(t *testing.T) {
 			currentTime: now,
 		}
 
-		if err := cachecmd.Run(context.TODO()); err != nil {
+		if _, err := cachecmd.Run(context.TODO()); err != nil {
 			t.Errorf("unexpected error w/ first run: %v", err)
 			continue
 		}
@@ -77,7 +77,7 @@ func TestCacheCmd_Run(t *testing.T) {
 		cachecmd.opt = tt.opt2
 		cachecmd.currentTime = now.Add(tt.interval)
 
-		if err := cachecmd.Run(context.TODO()); err != nil {
+		if _, err := cachecmd.Run(context.TODO()); err != nil {
 			t.Errorf("unexpected error w/ second run: %v", err)
 			continue
 		}
@@ -98,7 +98,7 @@ func TestCacheCmd_Run_failcmd(t *testing.T) {
 		cmdArgs: nil,
 		opt:     option{},
 	}
-	if err := cachecmd.Run(context.TODO()); err == nil {
+	if _, err := cachecmd.Run(context.TODO()); err == nil {
 		t.Error("got no error, want error")
 	}
 }
@@ -115,54 +115,74 @@ func TestCacheCmd_Run_async(t *testing.T) {
 	tmpdir, _ := ioutil.TempDir("", "cachecmdtest")
 	defer os.RemoveAll(tmpdir)
 
-	now := time.Now()
-
-	opt := option{
-		ttl:      10 * time.Second,
-		cacheDir: tmpdir,
-		async:    true,
+	tests := []struct {
+		name     string
+		cacheKey string
+	}{
+		{
+			name: "normal",
+		},
+		{
+			name:     "with cache key",
+			cacheKey: "key",
+		},
 	}
 
-	stdout1 := new(bytes.Buffer)
-	cachecmd := CacheCmd{
-		stdout:  stdout1,
-		stderr:  ioutil.Discard,
-		cmdName: cmd,
-		cmdArgs: args,
-		opt:     opt,
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
 
-		currentTime:  now,
-		cachecmdExec: bin,
-	}
+			opt := option{
+				ttl:      10 * time.Second,
+				cacheDir: tmpdir,
+				async:    true,
+				cacheKey: tt.cacheKey,
+			}
 
-	if err := cachecmd.Run(context.TODO()); err != nil {
-		t.Fatalf("unexpected error w/ first run: %v", err)
-	}
+			stdout1 := new(bytes.Buffer)
+			cachecmd := CacheCmd{
+				stdout:  stdout1,
+				stderr:  ioutil.Discard,
+				cmdName: cmd,
+				cmdArgs: args,
+				opt:     opt,
 
-	stdout2 := new(bytes.Buffer)
-	cachecmd.stdout = stdout2
-	cachecmd.currentTime = now.Add(time.Second)
+				currentTime:  now,
+				cachecmdExec: bin,
+			}
 
-	if err := cachecmd.Run(context.TODO()); err != nil {
-		t.Fatalf("unexpected error w/ second run: %v", err)
-	}
+			if _, err := cachecmd.Run(context.TODO()); err != nil {
+				t.Fatalf("unexpected error w/ first run: %v", err)
+			}
 
-	if stdout1.String() != stdout2.String() {
-		t.Error("got different result, want cached result from second run")
-	}
+			stdout2 := new(bytes.Buffer)
+			cachecmd.stdout = stdout2
+			cachecmd.currentTime = now.Add(time.Second)
 
-	cachecmd.currentTime = now.Add(time.Second)
-	if err := tryToGetNewResult(cachecmd, 50, 10*time.Millisecond, stdout1.String()); err != nil {
-		t.Fatalf("unexpected error w/ third run: %v", err)
+			if _, err := cachecmd.Run(context.TODO()); err != nil {
+				t.Fatalf("unexpected error w/ second run: %v", err)
+			}
+
+			if stdout1.String() != stdout2.String() {
+				t.Error("got different result, want cached result from second run")
+			}
+
+			cachecmd.currentTime = now.Add(time.Second)
+			if err := tryToGetNewResult(cachecmd, 50, 10*time.Millisecond, stdout1.String()); err != nil {
+				t.Fatalf("unexpected error w/ third run: %v", err)
+			}
+		})
 	}
 }
+
 func tryToGetNewResult(cachecmd CacheCmd, n int, interval time.Duration, cache string) error {
 	if n < 1 {
 		return errors.New("got cached result")
 	}
 	stdout := new(bytes.Buffer)
 	cachecmd.stdout = stdout
-	if err := cachecmd.Run(context.TODO()); err != nil {
+	if _, err := cachecmd.Run(context.TODO()); err != nil {
 		return err
 	}
 	if stdout.String() != cache {

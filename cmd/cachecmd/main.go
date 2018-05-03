@@ -222,7 +222,11 @@ func (c *CacheCmd) updateCacheCmd() *exec.Cmd {
 		execName = os.Args[0]
 	}
 	args := append(c.cmdArgs[:0],
-		append([]string{"-ttl", "0", "-cache_dir", c.opt.cacheDir, c.cmdName},
+		append([]string{
+			"-ttl", "0",
+			"-cache_dir", c.opt.cacheDir,
+			"-key", c.opt.cacheKey,
+			c.cmdName},
 			c.cmdArgs[0:]...)...)
 	return exec.Command(execName, args...)
 }
