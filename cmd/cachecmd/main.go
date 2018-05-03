@@ -39,7 +39,9 @@ const usageExample = `Example:
 
 	# TTL is 10 min. Return cache result immediately from cache and update cache
 	# in background for every run.
-	$ cachecmd -ttl=10m -async sh -c 'date +%s; sleep 3s`
+	$ cachecmd -ttl=10m -async sh -c 'date +%s; sleep 3s
+
+	$ cachecmd -ttl=10m -key="$(pwd)" go list ./...`
 
 func usage() {
 	fmt.Fprintln(os.Stderr, usageMessage)
@@ -60,6 +62,7 @@ type option struct {
 	ttl      time.Duration
 	async    bool
 	cacheDir string
+	cacheKey string
 }
 
 var flagOpt = &option{}
@@ -70,6 +73,7 @@ func init() {
 	flag.BoolVar(&flagOpt.async, "async", false,
 		"return result from cache immediately and update cache in background")
 	flag.StringVar(&flagOpt.cacheDir, "cache_dir", cacheDir(), "cache directory.")
+	flag.StringVar(&flagOpt.cacheKey, "key", "", "cache key in addition to given commands.")
 }
 
 func main() {
@@ -194,8 +198,15 @@ func (c *CacheCmd) makeCacheDir() error {
 }
 
 func (c *CacheCmd) cacheFilePath() string {
-	fname := cacheFileName(c.cmdName + " " + strings.Join(c.cmdArgs, " "))
-	return filepath.Join(c.opt.cacheDir, fname)
+	return filepath.Join(c.opt.cacheDir, c.cacheFileName())
+}
+
+func (c *CacheCmd) cacheFileName() string {
+	h := md5.New()
+	io.WriteString(h, c.opt.cacheKey)
+	io.WriteString(h, ":")
+	io.WriteString(h, c.cmdName+" "+strings.Join(c.cmdArgs, " "))
+	return fmt.Sprintf("v%s-%x", cacheStructureVersion, h.Sum(nil))
 }
 
 func (c *CacheCmd) runCmd(ctx context.Context, cache io.Writer) error {
@@ -220,12 +231,6 @@ func (c *CacheCmd) runCmd(ctx context.Context, cache io.Writer) error {
 func fileexists(filename string) bool {
 	_, err := os.Stat(filename)
 	return err == nil
-}
-
-func cacheFileName(cmd string) string {
-	h := md5.New()
-	io.WriteString(h, cmd)
-	return fmt.Sprintf("v%s-%x", cacheStructureVersion, h.Sum(nil))
 }
 
 func cacheDir() string {
