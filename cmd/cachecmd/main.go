@@ -131,9 +131,10 @@ func (c *CacheCmd) fromCacheOrRun(ctx context.Context) (exitcode int, err error)
 		return 0, err
 	}
 
-	stdoutCache := c.cacheFilePath() + ".STDOUT"
-	stderrCache := c.cacheFilePath() + ".STDERR"
-	exitCodeCache := stdoutCache + ".EXIT_CODE"
+	base := c.cacheFilePath()
+	stdoutCache := base + ".STDOUT"
+	stderrCache := base + ".STDERR"
+	exitCodeCache := base + ".EXIT_CODE"
 
 	// Read from cache.
 	if c.shouldUseCache(stdoutCache) {
