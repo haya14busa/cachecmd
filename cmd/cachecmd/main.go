@@ -115,7 +115,7 @@ type CacheCmd struct {
 	cachecmdExec string
 }
 
-func (c *CacheCmd) Run(ctx context.Context) error {
+func (c *CacheCmd) Run(ctx context.Context) (err error) {
 	if err := c.makeCacheDir(); err != nil {
 		return err
 	}
@@ -140,17 +140,20 @@ func (c *CacheCmd) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpf.Name())
+	defer func() {
+		// Rename temp file to appropriate file name for cache.
+		if err = tmpf.Close(); err != nil {
+			return
+		}
+		if err = os.Rename(tmpf.Name(), cachePath); err != nil {
+			// Clean up temp file incase rename failed.
+			_ = os.Remove(tmpf.Name())
+		}
+	}()
 
 	// Run command.
 	if err := c.runCmd(ctx, tmpf); err != nil {
 		return err
-	}
-
-	// Rename temp file to appropriate file name for cache.
-	err = tmpf.Close()
-	if err = os.Rename(tmpf.Name(), cachePath); err != nil {
-		return fmt.Errorf("failed to update cache: %v", err)
 	}
 
 	return nil
