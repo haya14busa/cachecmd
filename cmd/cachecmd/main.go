@@ -219,10 +219,8 @@ func (c *CacheCmd) cacheExitCode(code int, path string) error {
 		return err
 	}
 	defer f.Close()
-	if _, err := f.WriteString(fmt.Sprintf("%d", code)); err != nil {
-		return err
-	}
-	return nil
+	_, err = f.WriteString(fmt.Sprintf("%d", code))
+	return err
 }
 
 func (c *CacheCmd) readExitCodeFromCache(path string) int {
@@ -272,10 +270,8 @@ func (c *CacheCmd) fromCache(out io.Writer, cacheFname string) error {
 		return err
 	}
 	defer f.Close()
-	if _, err := io.Copy(out, f); err != nil {
-		return err
-	}
-	return nil
+	_, err = io.Copy(out, f)
+	return err
 }
 
 func (c *CacheCmd) makeCacheDir() error {
