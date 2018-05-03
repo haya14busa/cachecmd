@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -83,16 +84,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, version)
 		return
 	}
-	if err := run(os.Stdin, os.Stdout, os.Stderr, *flagOpt, flag.Args()); err != nil {
+	code, err := run(os.Stdin, os.Stdout, os.Stderr, *flagOpt, flag.Args())
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "cachecmd: %v\n", err)
-		os.Exit(exitCode(err))
+		if code == 0 {
+			code = 1
+		}
 	}
+	os.Exit(code)
 }
 
-func run(r io.Reader, stdout, stderr io.Writer, opt option, command []string) error {
+func run(r io.Reader, stdout, stderr io.Writer, opt option, command []string) (int, error) {
 	if len(command) == 0 {
 		usage()
-		return nil
+		return 0, nil
 	}
 	cachecmd := CacheCmd{
 		stdout:  stdout,
@@ -115,48 +120,100 @@ type CacheCmd struct {
 	cachecmdExec string
 }
 
-func (c *CacheCmd) Run(ctx context.Context) (err error) {
+func (c *CacheCmd) Run(ctx context.Context) (exitcode int, err error) {
 	if err := c.makeCacheDir(); err != nil {
-		return err
+		return 0, err
 	}
 
-	cachePath := c.cacheFilePath()
+	stdoutCache := c.cacheFilePath() + ".STDOUT"
+	stderrCache := c.cacheFilePath() + ".STDERR"
+	exitCodeCache := stdoutCache + ".EXIT_CODE"
 
 	// Read from cache.
-	if c.shouldUseCache(cachePath) {
-		if err := c.fromCache(cachePath); err != nil {
-			return err
+	if c.shouldUseCache(stdoutCache) {
+		if err := c.fromCache(c.stdout, stdoutCache); err != nil {
+			return 0, err
 		}
+		if err := c.fromCache(c.stderr, stderrCache); err != nil {
+			return 0, err
+		}
+		code := c.readExitCodeFromCache(exitCodeCache)
 		if !c.opt.async {
-			return nil
+			return code, nil
 		}
 		// Spawn update command in background and return.
-		return c.updateCacheCmd().Start()
+		return code, c.updateCacheCmd().Start()
 	}
 
-	// Create temp file to store command result.
-	// Do not use cache file directly to access cache file while updating cache.
-	tmpf, err := ioutil.TempFile("", "cachecmd_")
+	stdoutf, finally, err := c.prepareCacheFile(stdoutCache)
 	if err != nil {
-		return fmt.Errorf("failed to create temp file: %v", err)
+		return 0, err
 	}
-	defer func() {
-		// Rename temp file to appropriate file name for cache.
-		if err = tmpf.Close(); err != nil {
-			return
-		}
-		if err = os.Rename(tmpf.Name(), cachePath); err != nil {
-			// Clean up temp file incase rename failed.
-			_ = os.Remove(tmpf.Name())
-		}
-	}()
+	defer finally()
+
+	stderrf, finally, err := c.prepareCacheFile(stderrCache)
+	if err != nil {
+		return 0, err
+	}
+	defer finally()
+	_ = stderrf
 
 	// Run command.
-	if err := c.runCmd(ctx, tmpf); err != nil {
-		return err
+	if err := c.runCmd(ctx, stdoutf, stderrf); err != nil {
+		code := exitCode(err)
+		if err := c.cacheExitCode(code, exitCodeCache); err != nil {
+			return 0, err
+		}
+		return code, err
 	}
 
+	return 0, nil
+}
+
+// Create temp file to store command result.
+// Do not use cache file directly to access cache file while updating cache.
+func (c *CacheCmd) prepareCacheFile(path string) (f *os.File, finally func() error, err error) {
+	tmpf, err := ioutil.TempFile("", "cachecmd_")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create temp file: %v", err)
+	}
+	finally = func() error {
+		// Rename temp file to appropriate file name for cache.
+		if err := tmpf.Close(); err != nil {
+			return err
+		}
+		if err := os.Rename(tmpf.Name(), path); err != nil {
+			// Clean up temp file incase rename failed.
+			_ = os.Remove(tmpf.Name())
+			return err
+		}
+		return nil
+	}
+	return tmpf, finally, nil
+}
+
+func (c *CacheCmd) cacheExitCode(code int, path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.WriteString(fmt.Sprintf("%d", code)); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (c *CacheCmd) readExitCodeFromCache(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	b := make([]byte, 1)
+	f.Read(b)
+	code, _ := strconv.Atoi(string(b))
+	return code
 }
 
 func (c *CacheCmd) updateCacheCmd() *exec.Cmd {
@@ -184,13 +241,13 @@ func (c *CacheCmd) shouldUseCache(cacheFname string) bool {
 	return c.currentTime.Add(-c.opt.ttl).Sub(stat.ModTime()).Seconds() < 0
 }
 
-func (c *CacheCmd) fromCache(cacheFname string) error {
+func (c *CacheCmd) fromCache(out io.Writer, cacheFname string) error {
 	f, err := os.Open(cacheFname)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	if _, err := io.Copy(c.stdout, f); err != nil {
+	if _, err := io.Copy(out, f); err != nil {
 		return err
 	}
 	return nil
@@ -212,10 +269,14 @@ func (c *CacheCmd) cacheFileName() string {
 	return fmt.Sprintf("v%s-%x", cacheStructureVersion, h.Sum(nil))
 }
 
-func (c *CacheCmd) runCmd(ctx context.Context, cache io.Writer) error {
+func (c *CacheCmd) runCmd(ctx context.Context, stdoutCache, stderrCache io.Writer) error {
 	cmd := exec.CommandContext(ctx, c.cmdName, c.cmdArgs...)
-	cmd.Stderr = c.stderr
+
 	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return err
 	}
@@ -224,8 +285,11 @@ func (c *CacheCmd) runCmd(ctx context.Context, cache io.Writer) error {
 		return err
 	}
 
-	if _, err := io.Copy(cache, io.TeeReader(stdout, c.stdout)); err != nil {
-		return fmt.Errorf("failed to copy command result to cache: %v", err)
+	if _, err := io.Copy(stdoutCache, io.TeeReader(stdout, c.stdout)); err != nil {
+		return fmt.Errorf("failed to copy stdout to cache: %v", err)
+	}
+	if _, err := io.Copy(stderrCache, io.TeeReader(stderr, c.stderr)); err != nil {
+		return fmt.Errorf("failed to copy stderr to cache: %v", err)
 	}
 
 	return cmd.Wait()
@@ -250,6 +314,9 @@ func xdgCacheHome() string {
 }
 
 func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
 	if exiterr, ok := err.(*exec.ExitError); ok {
 		if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
 			return status.ExitStatus()
