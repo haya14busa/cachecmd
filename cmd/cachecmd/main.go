@@ -42,7 +42,10 @@ const usageExample = `Example:
 	# in background for every run.
 	$ cachecmd -ttl=10m -async sh -c 'date +%s; sleep 3s
 
-	$ cachecmd -ttl=10m -key="$(pwd)" go list ./...`
+	# Cache result by current directory.
+	$ cachecmd -ttl=10m -key="$(pwd)" go list ./...
+	# https://github.com/github/hub
+	$ cachecmd -ttl=10m -key="$(pwd)" -async hub issue`
 
 func usage() {
 	fmt.Fprintln(os.Stderr, usageMessage)
