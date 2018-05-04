@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -327,11 +328,16 @@ func cacheDir() string {
 
 // REF: https://specifications.freedesktop.org/basedir-spec/basedir-spec-0.6.html
 func xdgCacheHome() string {
-	path := os.Getenv("XDG_CACHE_HOME")
-	if path == "" {
-		path = filepath.Join(os.Getenv("HOME"), ".cache")
+	home := ""
+	if runtime.GOOS == "windows" {
+		home = os.Getenv("USERPROFILE")
+	} else {
+		home = os.Getenv("XDG_CACHE_HOME")
+		if home == "" {
+			home = os.Getenv("HOME")
+		}
 	}
-	return path
+	return filepath.Join(home, ".cache")
 }
 
 func exitError(err error) (int, error) {
