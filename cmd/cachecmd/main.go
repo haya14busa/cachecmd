@@ -155,17 +155,29 @@ func (c *CacheCmd) fromCacheOrRun(ctx context.Context) (exitcode int, err error)
 		return code, c.updateCacheCmd().Start()
 	}
 
+	var useNativeErr bool
+
 	stdoutf, finallyOut, cancelOut, err := c.prepareCacheFile(stdoutCache)
 	if err != nil {
 		return 0, err
 	}
-	defer func() { err = finallyOut() }()
+	defer func() {
+		errOut := finallyOut()
+		if !useNativeErr {
+			err = errOut
+		}
+	}()
 
 	stderrf, finallyErr, cancelErr, err := c.prepareCacheFile(stderrCache)
 	if err != nil {
 		return 0, err
 	}
-	defer func() { err = finallyErr() }()
+	defer func() {
+		errErr := finallyErr()
+		if !useNativeErr {
+			err = errErr
+		}
+	}()
 
 	// Run command.
 	if err := c.runCmd(ctx, stdoutf, stderrf); err != nil {
@@ -173,6 +185,7 @@ func (c *CacheCmd) fromCacheOrRun(ctx context.Context) (exitcode int, err error)
 		if err != nil {
 			cancelOut()
 			cancelErr()
+			useNativeErr = true
 			return code, err
 		}
 		if err := c.cacheExitCode(code, exitCodeCache); err != nil {
