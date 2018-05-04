@@ -1,0 +1,16 @@
+# Run the below command when you edit .drone.yml
+#   drone secure --repo haya14busa/cachecmd --in .drone.sec.yaml
+
+build:
+  lint:
+    image: golang:1.10
+    environment:
+      - REVIEWDOG_GITHUB_API_TOKEN=$$REVIEWDOG_GITHUB_API_TOKEN
+    commands:
+      - go get github.com/haya14busa/reviewdog/cmd/reviewdog
+      - go get github.com/golang/lint/golint
+      - go get honnef.co/go/tools/cmd/megacheck
+      - go get github.com/kisielk/errcheck
+      - reviewdog -ci=droneio
+    when:
+      event: pull_request
