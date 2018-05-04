@@ -154,17 +154,17 @@ func (c *CacheCmd) fromCacheOrRun(ctx context.Context) (exitcode int, err error)
 		return code, c.updateCacheCmd().Start()
 	}
 
-	stdoutf, finally, cancelOut, err := c.prepareCacheFile(stdoutCache)
+	stdoutf, finallyOut, cancelOut, err := c.prepareCacheFile(stdoutCache)
 	if err != nil {
 		return 0, err
 	}
-	defer finally()
+	defer func() { err = finallyOut() }()
 
-	stderrf, finally, cancelErr, err := c.prepareCacheFile(stderrCache)
+	stderrf, finallyErr, cancelErr, err := c.prepareCacheFile(stderrCache)
 	if err != nil {
 		return 0, err
 	}
-	defer finally()
+	defer func() { err = finallyErr() }()
 
 	// Run command.
 	if err := c.runCmd(ctx, stdoutf, stderrf); err != nil {
@@ -187,7 +187,7 @@ func (c *CacheCmd) fromCacheOrRun(ctx context.Context) (exitcode int, err error)
 // Do not use cache file directly to access cache file while updating cache.
 func (c *CacheCmd) prepareCacheFile(path string) (
 	f *os.File, finally func() error, cancel func(), err error) {
-	tmpf, err := ioutil.TempFile("", "cachecmd_")
+	tmpf, err := ioutil.TempFile(c.opt.cacheDir, "tmp_cachecmd_")
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create temp file: %v", err)
 	}
@@ -195,7 +195,7 @@ func (c *CacheCmd) prepareCacheFile(path string) (
 	finally = func() error {
 		// Rename temp file to appropriate file name for cache.
 		if err := tmpf.Close(); err != nil {
-			return err
+			return fmt.Errorf("failed to close file: %v", err)
 		}
 		// Clean up temp file in case rename failed.
 		defer os.Remove(tmpf.Name())
@@ -205,7 +205,7 @@ func (c *CacheCmd) prepareCacheFile(path string) (
 			return nil
 		}
 		if err := os.Rename(tmpf.Name(), path); err != nil {
-			return err
+			return fmt.Errorf("faled to rename: %v", err)
 		}
 		return nil
 	}
