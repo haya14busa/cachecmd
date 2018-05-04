@@ -1,0 +1,13 @@
+runner:
+  golint:
+    cmd: golint ./...
+  govet:
+    cmd: go vet ./...
+  megacheck:
+    cmd: megacheck ./...
+    errorformat:
+      - "%f:%l:%c: %m"
+  errcheck:
+    cmd: errcheck -asserts -ignoretests -blank ./...
+    errorformat:
+      - "%f:%l:%c:%m"
