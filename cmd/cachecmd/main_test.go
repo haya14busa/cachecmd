@@ -102,9 +102,6 @@ func TestCacheCmd_Run_notfound(t *testing.T) {
 	}
 
 	code, err := cachecmd.Run(context.TODO())
-	if err == nil {
-		t.Error("got no error, want error")
-	}
 	if code != 1 {
 		t.Errorf("got exit code %d, want 1. error: %v", code, err)
 	}
