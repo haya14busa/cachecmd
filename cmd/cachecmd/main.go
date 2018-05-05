@@ -341,16 +341,16 @@ func cacheDir() string {
 
 // REF: https://specifications.freedesktop.org/basedir-spec/basedir-spec-0.6.html
 func xdgCacheHome() string {
-	home := ""
-	if runtime.GOOS == "windows" {
-		home = os.Getenv("USERPROFILE")
-	} else {
-		home = os.Getenv("XDG_CACHE_HOME")
-		if home == "" {
-			home = os.Getenv("HOME")
-		}
+	dir := os.Getenv("XDG_CACHE_HOME")
+	if dir != "" {
+		return dir
 	}
-	return filepath.Join(home, ".cache")
+	if runtime.GOOS == "windows" {
+		dir = os.Getenv("USERPROFILE")
+	} else {
+		dir = os.Getenv("HOME")
+	}
+	return filepath.Join(dir, ".cache")
 }
 
 func exitError(err error) (int, error) {
