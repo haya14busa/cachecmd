@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -154,17 +155,29 @@ func (c *CacheCmd) fromCacheOrRun(ctx context.Context) (exitcode int, err error)
 		return code, c.updateCacheCmd().Start()
 	}
 
+	var useNativeErr bool
+
 	stdoutf, finallyOut, cancelOut, err := c.prepareCacheFile(stdoutCache)
 	if err != nil {
 		return 0, err
 	}
-	defer func() { err = finallyOut() }()
+	defer func() {
+		errOut := finallyOut()
+		if !useNativeErr {
+			err = errOut
+		}
+	}()
 
 	stderrf, finallyErr, cancelErr, err := c.prepareCacheFile(stderrCache)
 	if err != nil {
 		return 0, err
 	}
-	defer func() { err = finallyErr() }()
+	defer func() {
+		errErr := finallyErr()
+		if !useNativeErr {
+			err = errErr
+		}
+	}()
 
 	// Run command.
 	if err := c.runCmd(ctx, stdoutf, stderrf); err != nil {
@@ -172,6 +185,7 @@ func (c *CacheCmd) fromCacheOrRun(ctx context.Context) (exitcode int, err error)
 		if err != nil {
 			cancelOut()
 			cancelErr()
+			useNativeErr = true
 			return code, err
 		}
 		if err := c.cacheExitCode(code, exitCodeCache); err != nil {
@@ -327,11 +341,16 @@ func cacheDir() string {
 
 // REF: https://specifications.freedesktop.org/basedir-spec/basedir-spec-0.6.html
 func xdgCacheHome() string {
-	path := os.Getenv("XDG_CACHE_HOME")
-	if path == "" {
-		path = filepath.Join(os.Getenv("HOME"), ".cache")
+	dir := os.Getenv("XDG_CACHE_HOME")
+	if dir != "" {
+		return dir
 	}
-	return path
+	if runtime.GOOS == "windows" {
+		dir = os.Getenv("USERPROFILE")
+	} else {
+		dir = os.Getenv("HOME")
+	}
+	return filepath.Join(dir, ".cache")
 }
 
 func exitError(err error) (int, error) {

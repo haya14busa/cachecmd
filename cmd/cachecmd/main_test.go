@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -159,6 +160,10 @@ func TestCacheCmd_Run_async(t *testing.T) {
 	}
 	cmd := "date"
 	args := []string{`+%N`}
+	if runtime.GOOS == "windows" {
+		cmd = "cmd"
+		args = []string{`/c`, `echo %TIME%`}
+	}
 
 	tmpdir, _ := ioutil.TempDir("", "cachecmdtest")
 	defer os.RemoveAll(tmpdir)
@@ -248,6 +253,9 @@ func prepareBinary(t *testing.T) (bin string, cleanup func(), err error) {
 		os.RemoveAll(tmpDir)
 	}
 	bin = filepath.Join(tmpDir, "cachecmd")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	err = exec.Command("go", "build", "-o", bin, pkg).Run()
 	return bin, cleanup, err
 }
