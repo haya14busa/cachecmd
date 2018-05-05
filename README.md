@@ -31,7 +31,7 @@ $ cachecmd -ttl=0 date +%S
 
 # TTL is 10 min. Return cache result immediately from cache and update cache
 # in background for every run.
-$ cachecmd -ttl=10m -async sh -c 'date +%s; sleep 3s
+$ cachecmd -ttl=10m -async sh -c 'date +%s; sleep 3s'
 
 # Cache result by current directory.
 $ cachecmd -ttl=10m -key="$(pwd)" go list ./...
