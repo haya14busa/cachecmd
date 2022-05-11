@@ -11,7 +11,7 @@ Return cached result instead if cache found.
 ## Installation
 
 ```shell
-go get -u github.com/haya14busa/cachecmd/cmd/cachecmd
+go install github.com/haya14busa/cachecmd/cmd/cachecmd@latest
 ```
 
 ## Example
